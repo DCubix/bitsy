@@ -6,11 +6,15 @@
 #include <string>
 #include <vector>
 #include <cctype>
+#include <algorithm>
+#include <iostream>
 
 #include "engine.h"
 
 enum OpCode {
-	OP_GRAB = 0,
+	OP_NOP = 0,
+
+	OP_GRAB,
 	OP_OFFER,
 	OP_RECEIVE,
 	OP_BRANCH,
@@ -40,7 +44,7 @@ enum InputIndex {
 
 struct Instruction {
 	union {
-		uint16_t instruction;
+		uint16_t instruction{ 0 };
 		struct { uint8_t op; uint8_t data; };
 	};
 };
@@ -52,30 +56,51 @@ public:
 	}
 
 	inline void run(Engine* engine) {
-		while (m_pc <= 255) {
-			if (!m_waitingInput) {
-				auto& inst = next();
-				switch (inst.op) {
-					case OP_GRAB: m_x = m_memory[inst.data]; break;
-					case OP_OFFER: m_memory[inst.data] = m_x; break;
-					case OP_RECEIVE: m_waitingInput = true; m_inputTarget = &m_x; break;
-					case OP_BRANCH: if (m_x == 0) m_pc = inst.data; break;
-					case OP_INCREASE: m_x += inst.data; break;
-					case OP_TRANSMIT: /* TODO: Implement Video Output */ break;
-					case OP_SET: m_x = inst.data; break;
-					case OP_ADD: m_x += m_memory[inst.data]; break;
+		m_pc = 0;
+		while (m_pc < 255 && !m_waitingInput) {
+			auto& inst = next();
+			switch (inst.op) {
+				default: break;
+				case OP_GRAB: m_x = m_memory[inst.data]; break;
+				case OP_OFFER: m_memory[inst.data] = m_x; break;
+				case OP_RECEIVE: m_waitingInput = true; m_inputTarget = &m_x; break;
+				case OP_BRANCH: if (m_x == 0) m_pc = inst.data; break;
+				case OP_INCREASE: m_x += inst.data; break;
+				case OP_TRANSMIT: {
+					// USE THE TWO LAST MEMORY POSITIONS AS X AND Y
+					uint8_t x = m_memory[254];
+					uint8_t y = m_memory[255];
+					if (m_x > 0xF) {
+						m_x -= 0xF;
+						engine->clear(m_x);
+					} else {
+						engine->put(x, y, m_x);
+					}
+				} break;
+				case OP_SET: m_x = inst.data; break;
+				case OP_ADD: m_x += m_memory[inst.data]; break;
 
-					case OP_GRAB_EX: m_x = m_memory[m_memory[inst.data]]; break;
-					case OP_OFFER_EX: m_memory[m_memory[inst.data]] = m_x; break;
-					case OP_RECEIVE_EX: m_waitingInput = true; m_inputTarget = &m_memory[inst.data]; break;
-					case OP_BRANCH_EX: if (m_x == 0) m_pc = m_memory[inst.data]; break;
-					case OP_INCREASE_EX: m_memory[inst.data] += m_x; break;
-					case OP_TRANSMIT_EX: /* TODO: Implement Video Output */ break;
-					case OP_SET_EX: m_x ^= m_memory[inst.data]; break;
-					case OP_ADD_EX: m_x += m_memory[m_memory[inst.data]]; break;
-				}
+				case OP_GRAB_EX: m_x = m_memory[m_memory[inst.data]]; break;
+				case OP_OFFER_EX: m_memory[m_memory[inst.data]] = m_x; break;
+				case OP_RECEIVE_EX: m_waitingInput = true; m_inputTarget = &m_memory[inst.data]; break;
+				case OP_BRANCH_EX: if (m_x == 0) m_pc = m_memory[inst.data]; break;
+				case OP_INCREASE_EX: m_memory[inst.data] += m_x; break;
+				case OP_TRANSMIT_EX: {
+					uint8_t x = m_memory[254];
+					uint8_t y = m_memory[255];
+					if (m_memory[inst.data] > 0xF) {
+						m_memory[inst.data] -= 0xF;
+						engine->clear(m_memory[inst.data]);
+					} else {
+						engine->put(x, y, m_memory[inst.data]);
+					}
+				} break;
+				case OP_SET_EX: m_x ^= m_memory[inst.data]; break;
+				case OP_ADD_EX: m_x += m_memory[m_memory[inst.data]]; break;
 			}
 		}
+
+		std::cout << +m_memory[254] << ", " << +m_memory[255] << ", " << +m_memory[0] << std::endl;
 	}
 
 	inline void joyaction(uint8_t index) {
@@ -84,7 +109,11 @@ public:
 	}
 
 	inline void load(const std::string& code) {
-		std::vector<char> input(code.begin(), code.end());
+		for (size_t i = 0; i < m_program.size(); i++) {
+			m_program[i].instruction = 0;
+		}
+
+		std::string input = code;
 
 		auto advance = [&]() -> char {
 			char c = input.front();
@@ -108,7 +137,7 @@ public:
 		};
 
 		while (!input.empty()) {
-			const char c = input.front();
+			char c = input.front();
 			if (::isalpha(c)) {
 				switch (c) {
 					case 'G': advance(); put(OP_GRAB, readNumber()); break;

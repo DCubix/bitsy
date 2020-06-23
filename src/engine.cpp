@@ -12,9 +12,12 @@ void Engine::start(Gorbitsa* gb) {
 		SDL_WINDOW_SHOWN
 	);
 	m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+	m_buffer = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, ScreenResolution, ScreenResolution);
 
 	int p;
 	SDL_LockTexture(m_buffer, nullptr, (void**) &m_pixels, &p);
+
+	clear(0);
 
 	SDL_Event ev;
 
